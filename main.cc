@@ -117,10 +117,10 @@ int main( int argc, char *argv[] ) {
 
   // Build input buffers
   const size_t sz = 128;
-  const size_t buf_sz = sizeof(int) * sz;
-  int * A = new int[sz];
-  int * B = new int[sz];
-  int * out = new int[sz];
+  const size_t buf_sz = sizeof(cl_int) * sz;
+  cl_int * A = new int[sz];
+  cl_int * B = new int[sz];
+  cl_int * out = new int[sz];
 
   for (size_t i = 0; i < sz; i++){
     A[i] = i;
