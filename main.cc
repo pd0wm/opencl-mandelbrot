@@ -1,6 +1,8 @@
 #include <iostream>
 #include <cassert>
 #include <string>
+#include <fstream>
+#include <sstream>
 
 #include <CL/cl.h>
 
@@ -48,6 +50,40 @@ cl_device_id get_first_device(void){
   return NULL;
 }
 
+std::string read_file(const char * fn){
+  std::ifstream f(fn);
+  std::stringstream buf;
+  buf << f.rdbuf();
+  return buf.str();
+}
+
+cl_program build(const cl_context ctx, const cl_device_id device, std::string source){
+  cl_int err;
+  const char * string = source.c_str();
+  const size_t length = source.size();
+  cl_program program = clCreateProgramWithSource(ctx, 1, &string, &length, &err);
+  cl_ok(err);
+
+  const char * options = "";
+  err = clBuildProgram(program, 1, &device, options, NULL, NULL);
+
+  if (err == CL_BUILD_PROGRAM_FAILURE){
+    std::cout << "Build failure:" << std::endl;
+
+    size_t value_sz;
+    cl(clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, NULL, &value_sz));
+
+    char * value = new char[value_sz];
+    cl(clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, value_sz, value, NULL));
+    std::cout << value;
+
+    delete[] value;
+    assert(false);
+  }
+
+  return program;
+}
+
 
 int main( int argc, char *argv[] ) {
   UNUSED(argc);
@@ -65,9 +101,14 @@ int main( int argc, char *argv[] ) {
   cl(clGetDeviceInfo(d, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(compute_units), &compute_units, NULL));
   std::cout << "Compute units: " << compute_units << std::endl;
 
-  cl_context context = clCreateContext(NULL, 1, &d, NULL, NULL, &err);
+  cl_context ctx = clCreateContext(NULL, 1, &d, NULL, NULL, &err);
   cl_ok(err);
 
 
-  cl(clReleaseContext(context));
+  auto source = read_file("../test.cl");
+  std::cout << source << std::endl;
+
+  auto program = build(ctx, d, source);
+
+  cl(clReleaseContext(ctx));
 }
