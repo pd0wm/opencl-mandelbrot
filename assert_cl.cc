@@ -1,3 +1,4 @@
+// https://gist.github.com/allanmac/9328bb2d6a99b86883195f8f78fd1b93
 #include <cstdio>
 #include "assert_cl.hpp"
 
