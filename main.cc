@@ -6,9 +6,11 @@
 #include <fstream>
 #include <sstream>
 #include <vector>
+#include <cstdint>
 
 #include <CL/cl.h>
 
+#include "svgpng.hpp"
 #include "assert_cl.hpp"
 
 #define UNUSED(x) (void)(x)
@@ -100,79 +102,71 @@ int main( int argc, char *argv[] ) {
   std::cout << "Device name: " << get_device_info_string(d, CL_DEVICE_NAME) << std::endl;
   std::cout << "OpenCL C version: " << get_device_info_string(d, CL_DEVICE_OPENCL_C_VERSION) << std::endl;
 
-  cl_uint compute_units;
-  cl(clGetDeviceInfo(d, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(compute_units), &compute_units, NULL));
-  std::cout << "Compute units: " << compute_units << std::endl;
-
   cl_context ctx = clCreateContext(NULL, 1, &d, NULL, NULL, &err);
   cl_ok(err);
 
   cl_command_queue q = clCreateCommandQueue(ctx, d, 0, &err);
   cl_ok(err);
 
-  auto source = read_file("../test.cl");
-  std::cout << source << std::endl;
-
+  auto source = read_file("../mandelbrot.cl");
   auto program = build(ctx, d, source);
 
-  // Build input buffers
-  const size_t sz = 128;
-  const size_t buf_sz = sizeof(cl_int) * sz;
-  cl_int * A = new int[sz];
-  cl_int * B = new int[sz];
-  cl_int * out = new int[sz];
-
-  for (size_t i = 0; i < sz; i++){
-    A[i] = i;
-    B[i] = 100;
-  }
-  auto A_cl = clCreateBuffer(ctx, CL_MEM_READ_ONLY, buf_sz, NULL, &err);
-  cl_ok(err);
-  auto B_cl = clCreateBuffer(ctx, CL_MEM_READ_ONLY, buf_sz, NULL, &err);
-  cl_ok(err);
-  auto out_cl = clCreateBuffer(ctx, CL_MEM_WRITE_ONLY, buf_sz, NULL, &err);
-  cl_ok(err);
+  const size_t img_width = 1200;
+  const size_t img_height = 800;
 
   // Create kernel
-  cl_kernel kernel = clCreateKernel(program, "vector_add", &err);
+  cl_kernel kernel = clCreateKernel(program, "mandelbrot", &err);
   cl_ok(err);
 
-  // Set kernel arguments
-  cl(clSetKernelArg(kernel, 0, sizeof(A_cl), &A_cl));
-  cl(clSetKernelArg(kernel, 1, sizeof(B_cl), &B_cl));
-  cl(clSetKernelArg(kernel, 2, sizeof(out_cl), &out_cl));
+  cl_image_format format;
+  format.image_channel_order = CL_RGBA;
+  format.image_channel_data_type = CL_UNSIGNED_INT8;
 
-  // Copy A and B into device memory
-  cl(clEnqueueWriteBuffer(q, A_cl, CL_TRUE, 0, buf_sz, A, 0, NULL, NULL));
-  cl(clEnqueueWriteBuffer(q, B_cl, CL_TRUE, 0, buf_sz, B, 0, NULL, NULL));
+  cl_image_desc desc;
+  desc.image_type = CL_MEM_OBJECT_IMAGE2D;
+  desc.image_width = img_width;
+  desc.image_height = img_height;
+  desc.image_depth = 0;
+  desc.image_array_size = 0;
+  desc.image_row_pitch = 0;
+  desc.image_slice_pitch = 0;
+  desc.num_mip_levels = 0;
+  desc.num_samples = 0;
+  desc.buffer = NULL;
+
+  auto cl_img = clCreateImage(ctx, CL_MEM_WRITE_ONLY, &format, &desc, NULL, &err);
+  cl_ok(err);
+
+  cl(clSetKernelArg(kernel, 0, sizeof(cl_img), &cl_img));
 
   // Queue kernel
-  size_t N = 8;
-  cl(clEnqueueNDRangeKernel(q, kernel, 1, NULL, &sz, &N, 0, NULL, NULL));
+  size_t global[2] = {img_width, img_height};
+  size_t local[2] = {16, 16};
+  cl(clEnqueueNDRangeKernel(q, kernel, 2, NULL, global, local, 0, NULL, NULL));
 
   // Read output
-  cl(clEnqueueReadBuffer(q, out_cl, CL_TRUE, 0, buf_sz, out, 0, NULL, NULL));
+  uint8_t * img = new uint8_t[img_width * img_height * 4];
 
+  size_t origin[3] = {0, 0, 0};
+  size_t depth[3] = {img_width, img_height, 1};
+  cl(clEnqueueReadImage(q, cl_img, CL_TRUE,
+                        origin, depth, 0, 0, img,
+                        0, NULL, NULL));
 
   // Wait for opencl to finish
   cl(clFlush(q));
   cl(clFinish(q));
 
-  for (size_t i = sz - 10; i < sz; i++){
-    std::cout << "out[" << i << "]: " << out[i] << std::endl;
-  }
+  // Write image
+  FILE* fp = fopen("mandelbrot.png", "wb");
+  svpng(fp, img_width, img_height, img, 1);
+  fclose(fp);
 
   // Cleanup
-  delete[] A;
-  delete[] B;
-  delete[] out;
-
-
+  delete[] img;
   cl(clReleaseKernel(kernel));
   cl(clReleaseProgram(program));
-  cl(clReleaseMemObject(A_cl));
-  cl(clReleaseMemObject(B_cl));
-  cl(clReleaseMemObject(out_cl));
+  cl(clReleaseMemObject(cl_img));
   cl(clReleaseCommandQueue(q));
   cl(clReleaseContext(ctx));
 }
