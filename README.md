@@ -11,3 +11,4 @@ make
 ```
 
 # Example
+![example](example.png)
